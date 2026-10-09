@@ -1,0 +1,20 @@
+[Desktop Entry]
+Type=Application
+Name=Ligne EMAK
+GenericName=Téléphone
+Comment=Votre poste EMAK Telecom sur l'ordinateur : appeler et recevoir des appels
+Exec=ligne-emak %u
+TryExec=ligne-emak
+Icon=local.ligneemak.Softphone
+Terminal=false
+StartupNotify=true
+StartupWMClass=local.ligneemak.Softphone
+Categories=Network;Telephony;
+Keywords=téléphone;telephone;appel;voip;sip;emak;softphone;poste;
+MimeType=x-scheme-handler/tel;x-scheme-handler/callto;x-scheme-handler/sip;
+X-GNOME-UsesNotifications=true
+Actions=messagerie;
+
+[Desktop Action messagerie]
+Name=Écouter la messagerie vocale
+Exec=ligne-emak tel:*97

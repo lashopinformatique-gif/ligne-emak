@@ -1,0 +1,162 @@
+/* Ligne EMAK — styles GTK 3. Les couleurs de fond et de texte suivent le thème (clair ou sombre). */
+
+@define-color le_green #26a269;
+@define-color le_green_hover #2ec27e;
+@define-color le_red #e01b24;
+@define-color le_red_hover #f0353e;
+@define-color le_amber #e5a50a;
+
+/* ---- barre de titre ---- */
+.le-dot {
+  min-width: 8px;
+  min-height: 8px;
+  border-radius: 99px;
+  background-color: alpha(currentColor, 0.35);
+}
+.le-dot.online { background-color: @le_green_hover; }
+.le-dot.busy   { background-color: @le_amber; }
+.le-dot.error  { background-color: @le_red; }
+.le-subtitle { font-size: 0.85em; opacity: 0.72; }
+
+.le-banner {
+  padding: 9px 14px;
+  background-color: alpha(@le_amber, 0.16);
+  border-bottom: 1px solid alpha(@le_amber, 0.35);
+}
+
+.le-switcher button { padding: 4px 18px; min-height: 22px; }
+
+/* ---- saisie du numéro ---- */
+entry.le-number,
+entry.le-number:focus {
+  font-size: 28px;
+  font-weight: 300;
+  background: none;
+  border: none;
+  box-shadow: none;
+  outline: none;
+  min-height: 44px;
+  padding: 0 4px;
+  caret-color: @le_green;
+}
+.le-number-hint { font-size: 0.9em; min-height: 18px; }
+
+/* ---- clavier ---- */
+button.le-key {
+  min-width: 70px;
+  min-height: 62px;
+  padding: 0;
+  border-radius: 99px;
+  border: none;
+  box-shadow: none;
+  background-image: none;
+  background-color: alpha(currentColor, 0.065);
+  transition: background-color 120ms ease-out;
+}
+button.le-key:hover  { background-color: alpha(currentColor, 0.11); }
+button.le-key:active { background-color: alpha(currentColor, 0.2); }
+.le-key .le-digit { font-size: 25px; font-weight: 400; margin-top: -2px; }
+.le-key .le-letters { font-size: 8.5px; font-weight: 700; letter-spacing: 1.6px; opacity: 0.55; margin-top: -3px; }
+.le-dialpad.compact button.le-key { min-width: 60px; min-height: 48px; }
+.le-dialpad.compact .le-digit { font-size: 21px; }
+
+/* ---- boutons ronds ---- */
+button.le-round {
+  border-radius: 99px;
+  padding: 0;
+  border: none;
+  background-image: none;
+  box-shadow: none;
+  transition: background-color 120ms ease-out, box-shadow 120ms ease-out;
+}
+button.le-answer {
+  background-color: @le_green;
+  color: #ffffff;
+  box-shadow: 0 3px 10px alpha(@le_green, 0.35);
+}
+button.le-answer:hover  { background-color: @le_green_hover; }
+button.le-answer:active { background-color: shade(@le_green, 0.85); }
+button.le-hangup {
+  background-color: @le_red;
+  color: #ffffff;
+  box-shadow: 0 3px 10px alpha(@le_red, 0.35);
+}
+button.le-hangup:hover  { background-color: @le_red_hover; }
+button.le-hangup:active { background-color: shade(@le_red, 0.85); }
+button.le-answer:disabled, button.le-hangup:disabled { opacity: 0.45; box-shadow: none; color: #ffffff; }
+button.le-flat-round { background-color: transparent; }
+button.le-flat-round:hover  { background-color: alpha(currentColor, 0.08); }
+button.le-flat-round:active { background-color: alpha(currentColor, 0.16); }
+
+.le-badge {
+  background-color: @le_red;
+  color: #ffffff;
+  border-radius: 99px;
+  min-width: 18px;
+  min-height: 18px;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 0 5px;
+  margin: 6px 4px 0 0;
+}
+
+/* ---- écrans d'appel ---- */
+.le-avatar {
+  border-radius: 99px;
+  background-color: alpha(@le_green, 0.16);
+  color: @le_green;
+  font-size: 34px;
+  font-weight: 600;
+}
+image.le-avatar { color: @le_green; }
+.le-peer-name { font-size: 22px; font-weight: 600; margin-top: 10px; }
+.le-peer-number { opacity: 0.7; }
+.le-call-state { font-size: 15px; opacity: 0.85; min-height: 20px; }
+.le-dtmf { font-size: 22px; font-weight: 300; letter-spacing: 3px; min-height: 30px; }
+
+@keyframes le-pulse {
+  from { opacity: 1; }
+  to   { opacity: 0.35; }
+}
+.le-ringing { animation: le-pulse 0.9s ease-in-out infinite alternate; font-weight: 600; }
+
+button.le-action {
+  border-radius: 99px;
+  padding: 0;
+  border: none;
+  box-shadow: none;
+  background-image: none;
+  background-color: alpha(currentColor, 0.08);
+}
+button.le-action:hover { background-color: alpha(currentColor, 0.13); }
+button.le-action:checked {
+  background-color: @theme_fg_color;
+  color: @theme_bg_color;
+}
+button.le-action:disabled { opacity: 0.4; }
+.le-action-label { font-size: 0.88em; opacity: 0.8; }
+
+.le-heldbar {
+  padding: 8px 16px;
+  background-color: alpha(@le_amber, 0.16);
+}
+
+/* ---- formulaire ---- */
+.le-setup-title { font-size: 19px; font-weight: 700; }
+.le-field-title { font-weight: 600; }
+.le-hint, .le-help { font-size: 0.88em; }
+.le-form-error { color: @le_red; font-weight: 600; }
+button.le-wide-btn { min-height: 38px; font-weight: 600; }
+
+/* ---- historique ---- */
+list.le-history { background-color: transparent; }
+.le-history-row { border-bottom: 1px solid alpha(currentColor, 0.07); }
+.le-history-name { font-weight: 600; }
+.le-history-detail { font-size: 0.86em; }
+.le-history-row.missed .le-history-name,
+.le-history-row.missed .le-dir-icon { color: @le_red; }
+.le-dir-icon { opacity: 0.75; }
+.le-history-row.missed .le-dir-icon { opacity: 1; }
+button.le-history-call { color: @le_green; border-radius: 99px; min-width: 34px; min-height: 34px; }
+.le-empty-title { font-size: 1.1em; font-weight: 600; }
+button.le-clear { font-size: 0.9em; }

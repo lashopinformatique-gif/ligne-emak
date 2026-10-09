@@ -1,0 +1,4 @@
+#!/bin/sh
+# Lanceur de Ligne EMAK
+export PYTHONPATH="/usr/share/ligne-emak${PYTHONPATH:+:$PYTHONPATH}"
+exec /usr/bin/python3 -m ligne_emak "$@"

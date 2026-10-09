@@ -1,0 +1,4 @@
+#!/bin/sh
+set -e
+rm -rf /usr/share/ligne-emak/ligne_emak/__pycache__
+exit 0
