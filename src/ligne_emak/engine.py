@@ -225,6 +225,7 @@ class Engine(GObject.Object):
         self.audio = {"player": "alsa,default", "source": "alsa,default", "alert": "alsa,default"}
         self.applied = {}
         # Tests automatiques : fichiers WAV imposés à la place des appareils audio.
+        self._closed = False      # vrai après stop_blocking (fermeture de l'application)
         self.audio_locked = any(os.environ.get(k) for k in (
             "LIGNE_EMAK_AUDIO_SOURCE", "LIGNE_EMAK_AUDIO_PLAYER", "LIGNE_EMAK_AUDIO_ALERT"))
         GLib.timeout_add_seconds(30, self._health_check)
@@ -233,6 +234,8 @@ class Engine(GObject.Object):
 
     def start(self, account):
         """(Re)démarre le moteur avec ce compte."""
+        if self._closed:
+            return
         self.account = account
         if self._restart_src:
             GLib.source_remove(self._restart_src)
@@ -258,6 +261,10 @@ class Engine(GObject.Object):
 
     def stop_blocking(self, timeout=3.0):
         """Arrêt propre à la fermeture de l'application (désenregistrement SIP)."""
+        self._closed = True
+        if self._restart_src:
+            GLib.source_remove(self._restart_src)
+            self._restart_src = 0
         proc = self._proc
         self.account = None
         if proc is None:
@@ -614,7 +621,9 @@ class Engine(GObject.Object):
         elif cls == "mwi" or typ == "MWI_NOTIFY":
             new, old = parse_mwi(msg.get("param", ""))
             self.emit("mwi", new, old)
-        elif cls == "call":
+        elif cls == "call" or typ == "CALL_REMOTE_SDP":
+            # CALL_REMOTE_SDP (classe « other ») : renégociation (attente, reprise, codec), après
+            # laquelle baresip rouvre l'appareil d'origine de l'appel.
             self.emit("call-event", msg)
 
     def _set_state(self, state, detail):
@@ -676,18 +685,19 @@ class Engine(GObject.Object):
 
     def set_player(self, device, cb=None):
         """Change la sortie (voix de l'appel en cours compris). baresip y met aussi la sonnerie."""
+        # baresip met sa configuration à jour avant même d'essayer d'ouvrir l'appareil.
+        self.applied["player"] = self.applied["alert"] = device
+
         def done(ok, data):
-            if ok:
-                self.applied["player"] = self.applied["alert"] = device
             if cb:
                 cb(ok and "failed" not in data, data)
         self.command("auplay", device, done)
 
     def set_source(self, device, cb=None):
         """Change le micro (appel en cours compris)."""
+        self.applied["source"] = device
+
         def done(ok, data):
-            if ok:
-                self.applied["source"] = device
             if cb:
                 cb(ok and "failed" not in data, data)
         self.command("ausrc", device, done)

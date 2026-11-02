@@ -54,6 +54,7 @@ class Call:
         self.held = False
         self.user_hangup = False
         self.closed = False
+        self.devices = None       # (sortie, micro) ouverts par baresip à la création de l'appel
 
     @property
     def display(self):
@@ -350,6 +351,7 @@ class LigneEmakApp(Gtk.Application):
         self.devmon = None
         self.audio_dialog = None
         self._audio_pending = False
+        self._quitting = False
 
     # ---------------------------------------------------------------- démarrage
 
@@ -542,6 +544,8 @@ class LigneEmakApp(Gtk.Application):
 
         def go():
             self._net_src = 0
+            if self._quitting:
+                return False
             if self.active_calls():
                 self._net_src = GLib.timeout_add_seconds(10, go)
                 return False
@@ -618,7 +622,9 @@ class LigneEmakApp(Gtk.Application):
         if self.active_calls():
             self.toast("Un appel est déjà en cours.")
             return
+        self.apply_audio(predial=True)          # voix et micro de l'appel, avant de le créer
         call = Call("out", number)
+        call.devices = (self.engine.applied.get("player"), self.engine.applied.get("source"))
         self.calls.append(call)
         self.pending_out = call
         self.window.number.set_text("")
@@ -735,6 +741,7 @@ class LigneEmakApp(Gtk.Application):
                 call = Call("in", number_from_uri(ev.get("peeruri") or ev.get("param")),
                             ev.get("peerdisplayname", ""))
                 call.id = ev.get("id")
+                call.devices = (self.engine.applied.get("player"), self.engine.applied.get("source"))
                 self.calls.append(call)
             waiting = any(c is not call and c.state == "active" for c in self.active_calls())
             self.window.incoming.show_call(call.name, call.number, waiting)
@@ -751,14 +758,20 @@ class LigneEmakApp(Gtk.Application):
         elif typ == "CALL_ESTABLISHED":
             call.state = "active"
             call.answered = time.time()
-            if self._audio_pending:
-                GLib.idle_add(self.apply_audio)
+            GLib.idle_add(self.apply_audio)    # appel entrant : passe de la sonnerie à la voix
             if ev.get("peerdisplayname") and not call.name:
                 call.name = ev["peerdisplayname"]
             self.withdraw_notification("incoming")
             self.show_call_screen(call)
         elif typ == "CALL_CLOSED":
             self.on_call_closed(call, ev.get("param", ""))
+            return
+        elif typ == "CALL_REMOTE_SDP":
+            # Attente, reprise ou changement de codec : baresip rouvre les appareils d'origine de
+            # l'appel. On le note, puis on réapplique le choix actuel juste après.
+            if call.state == "active" and call.devices:
+                self.engine.applied["player"], self.engine.applied["source"] = call.devices
+                GLib.idle_add(self.apply_audio)
             return
         elif typ == "TRANSFER_FAILED":
             self.toast("Le transfert a échoué.")
@@ -948,8 +961,7 @@ class LigneEmakApp(Gtk.Application):
         return audio.compute_route(self.audio_prefs(), self.devices, self.audio_backend)
 
     def _route_for_engine(self):
-        r = self.current_route()
-        return {k: r[k] for k in ("player", "source", "alert")}
+        return audio.engine_config(self.current_route())
 
     def refresh_devices(self):
         self.devices = audio.list_devices()
@@ -963,27 +975,30 @@ class LigneEmakApp(Gtk.Application):
             self.settings["audio_names"] = names
             store.save_settings(self.settings)
 
-    def apply_audio(self):
-        """Met le moteur en accord avec les appareils choisis (voir audio.plan_changes)."""
+    def apply_audio(self, predial=False):
+        """Met le moteur en accord avec les appareils choisis (voir audio.plan_changes).
+
+        predial : juste avant de composer un numéro (aucun appel encore créé).
+        """
+        if self._quitting:
+            return False
         self.engine.audio = self._route_for_engine()
         if self.engine.audio_locked or not self.engine.connected:
             return False
-        route = self.current_route()
         calls = self.active_calls()
-        actions = audio.plan_changes(route, self.engine.applied, bool(calls),
-                                     any(c.state != "active" for c in calls))
-        self._audio_pending = False
+        if predial:
+            phase = "call"
+        elif any(c.state != "active" for c in calls):
+            phase = "ringing"
+        else:
+            phase = "call" if calls else "idle"
+        actions = audio.plan_changes(self.current_route(), self.engine.applied, phase)
+        self._audio_pending = actions == [("defer",)]
         for act in actions:
-            if act[0] == "defer":
-                self._audio_pending = True
-            elif act[0] == "ausrc":
+            if act[0] == "ausrc":
                 self.engine.set_source(act[1], self._audio_result)
             elif act[0] == "auplay":
                 self.engine.set_player(act[1], self._audio_result)
-            elif act[0] == "restart":
-                acc = self.current_account()
-                if acc and acc.is_complete():
-                    self.engine.start(acc)
         if self.window:
             self.window.route_button.update()
         return False
@@ -1000,6 +1015,8 @@ class LigneEmakApp(Gtk.Application):
             self.audio_dialog.refresh()
 
     def on_devices_changed(self, monitor):
+        if self._quitting:
+            return
         prefs = self.audio_prefs()
         before = self.current_route()["names"]
         self.refresh_devices()
@@ -1126,6 +1143,7 @@ class LigneEmakApp(Gtk.Application):
             dlg.destroy()
             if r != Gtk.ResponseType.OK:
                 return
+        self._quitting = True
         store.save_settings(self.settings)
         self.withdraw_notification("incoming")
         if self.devmon:

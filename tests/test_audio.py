@@ -103,21 +103,29 @@ check("casque débranché : repli sur le défaut", r["player"] == r["source"] ==
 r = audio.compute_route({"output": HEADSET, "input": HEADMIC}, audio.DeviceList(), "pulse")
 check("liste illisible : on garde le choix enregistré", r["player"] == "alsa,pulse:DEVICE=" + HEADSET)
 
-A = {"player": "alsa,pulse:DEVICE=a", "source": "alsa,pulse:DEVICE=m", "alert": "alsa,pulse:DEVICE=a"}
+SPK, MIC, RING = "alsa,pulse:DEVICE=casque", "alsa,pulse:DEVICE=micro", "alsa,pulse:DEVICE=hp"
+route = {"player": SPK, "source": MIC, "alert": RING}
+idle = audio.engine_config(route)
 plan = audio.plan_changes
-check("plan : rien à faire", plan(dict(A), A, False, False) == [])
-check("plan : appel qui sonne -> attendre",
-      plan(dict(A, player="alsa,default", alert="alsa,default"), A, True, True) == [("defer",)])
-check("plan : micro en plein appel", plan(dict(A, source="alsa,default"), A, True, False) == [("ausrc", "alsa,default")])
-check("plan : sortie en plein appel (sonnerie corrigée après)",
-      plan(dict(A, player="alsa,default"), A, True, False) == [("auplay", "alsa,default")])
-check("plan : hors appel, voix et sonnerie ensemble -> auplay",
-      plan(dict(A, player="alsa,default", alert="alsa,default"), A, False, False) == [("auplay", "alsa,default")])
-check("plan : hors appel, voix et sonnerie séparées -> relance",
-      plan(dict(A, alert="alsa,default"), A, False, False) == [("restart",)])
-after = {"player": "alsa,default", "source": A["source"], "alert": "alsa,default"}   # après auplay en appel
-check("plan : fin d'appel, sonnerie à rétablir -> relance",
-      plan(dict(A, player="alsa,default"), after, False, False) == [("restart",)])
+check("config de départ : sortie = appareil de la sonnerie", idle == {"player": RING, "source": MIC, "alert": RING})
+check("plan : hors appel, rien à faire", plan(route, idle, "idle") == [])
+check("plan : avant de composer -> voix sur le casque", plan(route, idle, "call") == [("auplay", SPK)])
+check("plan : appel entrant établi -> voix sur le casque", plan(route, dict(idle), "call") == [("auplay", SPK)])
+in_call = {"player": SPK, "source": MIC, "alert": SPK}
+check("plan : en appel, rien à faire", plan(route, in_call, "call") == [])
+check("plan : fin d'appel -> sortie remise sur la sonnerie, sans relance", plan(route, in_call, "idle") == [("auplay", RING)])
+check("plan : appel entrant qui sonne -> attendre qu'il soit établi", plan(route, idle, "ringing") == [("defer",)])
+check("plan : micro changé en appel", plan(dict(route, source="alsa,default"), in_call, "call") == [("ausrc", "alsa,default")])
+same = {"player": SPK, "source": MIC, "alert": SPK}
+check("plan : sonnerie = voix, hors appel, rien à faire", plan(same, audio.engine_config(same), "idle") == [])
+check("plan : jamais de relance du moteur", all(a[0] in ("ausrc", "auplay", "defer") for ph in ("idle", "call", "ringing")
+                                                for a in plan(route, {"player": "x", "source": "y", "alert": "z"}, ph)))
+ev = audio.DeviceMonitor.EVENT
+check("surveillance : appareils branchés/débranchés détectés",
+      all(ev.search(x) for x in ("Event 'new' on sink #57", "Event 'remove' on source #12",
+                                 "Event 'change' on server #4294967295")))
+check("surveillance : simples flux audio ignorés",
+      not any(ev.search(x) for x in ("Event 'new' on source-output #12", "Event 'remove' on sink-input #88")))
 
 # =============================================================== 2) routage réel dans baresip
 

@@ -172,35 +172,38 @@ def compute_route(prefs, devices, backend):
     }
 
 
-def plan_changes(route, applied, calls_active, calls_ringing):
-    """Ce qu'il faut faire pour passer de l'état du moteur (applied) à la route voulue.
+def engine_config(route):
+    """Appareils à écrire dans la configuration de baresip au démarrage (état « hors appel »)."""
+    return {"player": route["alert"], "source": route["source"], "alert": route["alert"]}
 
-    Renvoie une liste d'actions : ("ausrc", dev), ("auplay", dev), ("restart",) ou ("defer",).
-    - Jamais de changement pendant qu'un appel sonne (baresip 1.0 ne sait pas encore ouvrir
-      l'appareil d'un appel non établi) : on attend qu'il soit établi ou terminé.
-    - « auplay » règle à la fois la voix et la sonnerie : en appel, on bascule la voix et on
-      laisse la sonnerie se corriger à la fin de l'appel ; hors appel, si la voix et la sonnerie
-      doivent aller sur deux appareils différents, il faut relancer le moteur (configuration).
+
+def plan_changes(route, applied, phase):
+    """Commandes à envoyer pour passer de l'état du moteur (applied) aux appareils voulus.
+
+    phase : « idle » (aucun appel), « call » (appels établis, ou juste avant de composer)
+    ou « ringing » (un appel sonne ou n'est pas encore établi).
+    Renvoie une liste de ("ausrc", dev), ("auplay", dev) ou [("defer",)].
+
+    Dans baresip 1.0, « auplay » règle à la fois la voix et la sonnerie, et un appel garde
+    l'appareil en vigueur à sa création. D'où, sans jamais relancer le moteur :
+    - hors appel, la sortie est l'appareil de la SONNERIE (un appel entrant y sonne) ;
+    - juste avant de composer, et dès qu'un appel est établi, on passe sur l'appareil de la VOIX ;
+    - pendant qu'un appel sonne on ne touche à rien (baresip ne sait pas encore modifier un
+      appel non établi) : on réessaie quand il est établi ou terminé.
     """
-    want = (route["player"], route["source"], route["alert"])
-    have = (applied.get("player"), applied.get("source"), applied.get("alert"))
-    if want == have:
+    target = route["alert"] if phase == "idle" else route["player"]
+    differs = route["source"] != applied.get("source") or target != applied.get("player") or (
+        phase == "idle" and route["alert"] != applied.get("alert"))
+    if not differs:
         return []
-    if calls_ringing:
+    if phase == "ringing":
         return [("defer",)]
     actions = []
     if route["source"] != applied.get("source"):
         actions.append(("ausrc", route["source"]))
-    if calls_active:
-        if route["player"] != applied.get("player"):
-            actions.append(("auplay", route["player"]))
-        return actions
-    if route["player"] == applied.get("player") and route["alert"] == applied.get("alert"):
-        return actions
-    if route["player"] == route["alert"]:
-        actions.append(("auplay", route["player"]))
-        return actions
-    return [("restart",)]
+    if target != applied.get("player") or (phase == "idle" and route["alert"] != applied.get("alert")):
+        actions.append(("auplay", target))
+    return actions
 
 
 # ---------------------------------------------------------------- surveillance (branchement à chaud)
@@ -209,7 +212,8 @@ class DeviceMonitor(GObject.Object):
     """Suit « pactl subscribe » et émet « changed » quand un appareil apparaît ou disparaît."""
 
     __gsignals__ = {"changed": (GObject.SignalFlags.RUN_FIRST, None, ())}
-    EVENT = re.compile(r"Event '(new|remove|change)' on (sink|source|server)\b")
+    # « sink #12 » ou « source #3 », mais pas « sink-input » / « source-output » (simples flux audio).
+    EVENT = re.compile(r"Event '(new|remove|change)' on (sink|source|server) #")
 
     def __init__(self):
         super().__init__()
@@ -243,6 +247,9 @@ class DeviceMonitor(GObject.Object):
         if self._retry:
             GLib.source_remove(self._retry)
             self._retry = 0
+        if self._debounce:
+            GLib.source_remove(self._debounce)
+            self._debounce = 0
         if self._cancel:
             self._cancel.cancel()
         if self._proc is not None:
@@ -311,6 +318,10 @@ class LevelMeter(GObject.Object):
     @staticmethod
     def available():
         return shutil.which("parec") is not None
+
+    @property
+    def running(self):
+        return self._proc is not None
 
     def start(self, source_name):
         self.stop()

@@ -135,11 +135,13 @@ nécessaire.
   codecs G.722, G.711, Opus.
 - Son : la liste des appareils vient de `pactl` (PulseAudio ou PipeWire) ; baresip ouvre
   l'appareil choisi par ALSA via le greffon `pulse:DEVICE=<nom>` (ou `pipewire:NODE=<nom>`).
-  Pendant un appel, la bascule passe par les commandes `auplay`/`ausrc` de baresip. Comme
-  `auplay` règle aussi la sonnerie, une sonnerie sur un autre appareil que la voix est rétablie
-  en relançant le moteur, hors appel. `pactl subscribe` signale les branchements.
-- Le module de messagerie (`mwi`) de baresip 1.0 peut boucler si l'enregistrement aboutit avant
-  son minuteur de démarrage : il est donc chargé seulement après le premier enregistrement réussi.
+  `auplay`/`ausrc` changent d'appareil sans couper l'appel. Comme `auplay` règle aussi la
+  sonnerie et qu'un appel garde l'appareil de sa création, la sortie reste sur l'appareil de la
+  sonnerie hors appel, et passe sur celui de la voix juste avant de composer ou dès qu'un appel
+  entrant est établi (jamais de relance du moteur). Après une attente, une reprise ou un
+  changement de codec (événement `CALL_REMOTE_SDP`), baresip rouvre l'appareil d'origine :
+  l'application réapplique alors le choix en cours. `pactl subscribe` signale les branchements
+  (les simples flux audio sont ignorés).
 - Après un changement de réseau ou une sortie de veille, le moteur est relancé (hors appel).
 
 Les contributions sont bienvenues : ouvrez un ticket ou une *pull request*.

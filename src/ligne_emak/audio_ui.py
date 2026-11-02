@@ -60,6 +60,7 @@ class AudioDialog(Gtk.Dialog):
         self.player = audio.SoundTest()
         self._peak = 0.0
         self._updating = False
+        self._meter_for = None
 
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=18, margin_start=22, margin_end=22,
                       margin_top=18, margin_bottom=20)
@@ -159,7 +160,7 @@ class AudioDialog(Gtk.Dialog):
         self.out_test.set_sensitive(audio.SoundTest.available())
         self.ring_test.set_sensitive(audio.SoundTest.available())
         if self.get_mapped():
-            self._start_meter()
+            self._start_meter()     # ne relance le vumètre que si le micro a changé
 
     def _on_combo(self, combo, key):
         if self._updating:
@@ -176,6 +177,9 @@ class AudioDialog(Gtk.Dialog):
 
     def _start_meter(self):
         name = self.app.current_route()["names"]["input"]
+        if name == self._meter_for and self.meter.running:
+            return
+        self._meter_for = name
         ok = self.meter.start(name)
         self.level.set_sensitive(ok)
         self.level_hint.set_text("Parlez : la barre doit bouger." if ok else
