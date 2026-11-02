@@ -440,7 +440,9 @@ class CallView(Gtk.Box):
         self.middle.add_named(tr_box, "transfer")
         self.pack_start(self.middle, True, True, 0)
 
-        bottom = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8, margin_bottom=40)
+        bottom = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=14, margin_bottom=36)
+        self.route_slot = Gtk.Box(halign=Gtk.Align.CENTER)    # choix du haut-parleur (ajouté par l'app)
+        bottom.pack_start(self.route_slot, False, False, 0)
         self.hangup = round_button("hangup", "le-hangup", "Raccrocher", px=30, size=72)
         bottom.pack_start(self.hangup, False, False, 0)
         self.pack_start(bottom, False, False, 0)

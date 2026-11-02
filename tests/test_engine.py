@@ -1,7 +1,8 @@
 """Test de bout en bout du moteur, sans serveur EMAK ni carte son.
 
 Un faux PBX (fakepbx.py) joue le rôle d'EMAK : authentification Digest et messagerie (MWI).
-Un second baresip, « Bob », joue l'interlocuteur. On vérifie : enregistrement, refus du mauvais
+Un second baresip, « Bob », joue l'interlocuteur ; le son passe par de faux appareils ALSA
+(fakeaudio.py), comme le ferait une carte son. On vérifie : enregistrement, refus du mauvais
 mot de passe, appels sortant et entrant, DTMF, muet, attente, refus, et que le mot de passe ne
 reste pas sur le disque.
 
@@ -13,23 +14,22 @@ Ports utilisés sur 127.0.0.1 : 5090 (PBX), 5072 (Bob), 4455 (contrôle de Bob).
 """
 import atexit
 import json
-import math
 import os
 import re
 import shutil
 import socket
-import struct
 import subprocess
 import sys
 import tempfile
 import time
-import wave
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, "..", "src"))
+sys.path.insert(0, HERE)
 
 from gi.repository import GLib  # noqa: E402
 
+from fakeaudio import FakeAudio  # noqa: E402
 from ligne_emak.engine import MODULE_DIRS, Account, Engine, find_baresip  # noqa: E402
 
 WORK = tempfile.mkdtemp(prefix="ligne-emak-test-")
@@ -41,28 +41,17 @@ if not BARESIP or not MODDIR:
     sys.exit("baresip introuvable : sudo apt install baresip-core")
 
 
-def tone(path, freq):
-    w = wave.open(path, "wb")
-    w.setnchannels(1)
-    w.setsampwidth(2)
-    w.setframerate(8000)
-    w.writeframes(b"".join(struct.pack("<h", int(8000 * math.sin(2 * math.pi * freq * i / 8000)))
-                           for i in range(8000 * 20)))
-    w.close()
-
-
-tone(os.path.join(WORK, "a.wav"), 440)
-tone(os.path.join(WORK, "b.wav"), 660)
+fake = FakeAudio(os.path.join(WORK, "son"), ["bob"], {"micro-bob": 660})
 os.makedirs(os.path.join(WORK, "run"), mode=0o700)
 os.environ.update({
+    "HOME": fake.home,                  # baresip lit ~/.asoundrc (faux appareils)
     "LIGNE_EMAK_BARESIP": BARESIP,
     "LIGNE_EMAK_MODULE_DIR": MODDIR,
-    "LIGNE_EMAK_AUDIO_SOURCE": "aufile," + os.path.join(WORK, "a.wav"),
-    "LIGNE_EMAK_AUDIO_PLAYER": "aufile," + os.path.join(WORK, "alice_out.wav"),
-    "LIGNE_EMAK_EXTRA_MODULES": "aufile.so",
     "LIGNE_EMAK_REGINT": "10",          # ré-enregistrement rapide : la messagerie s'abonne plus tôt
     "XDG_RUNTIME_DIR": os.path.join(WORK, "run"),
 })
+for k in ("LIGNE_EMAK_AUDIO_SOURCE", "LIGNE_EMAK_AUDIO_PLAYER", "LIGNE_EMAK_AUDIO_ALERT"):
+    os.environ.pop(k, None)
 
 results = []
 
@@ -82,11 +71,11 @@ with open(os.path.join(bobdir, "config"), "w") as f:
     f.write("\n".join([
         "module_path " + MODDIR,
         "sip_listen 127.0.0.1:5072",
-        "audio_player aufile," + os.path.join(WORK, "bob_out.wav"),
-        "audio_source aufile," + os.path.join(WORK, "b.wav"),
-        "audio_alert aufile," + os.path.join(WORK, "bob_ring.wav"),
+        "audio_player alsa,pulse:DEVICE=bob",
+        "audio_source alsa,pulse:DEVICE=micro-bob",
+        "audio_alert alsa,pulse:DEVICE=bob",
         "ctrl_tcp_listen 127.0.0.1:4455",
-        "module g711.so", "module aufile.so",
+        "module g711.so", "module alsa.so",
         "module_tmp account.so", "module_app menu.so", "module_app ctrl_tcp.so", "",
     ]))
 with open(os.path.join(bobdir, "accounts"), "w") as f:

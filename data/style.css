@@ -160,3 +160,26 @@ list.le-history { background-color: transparent; }
 button.le-history-call { color: @le_green; border-radius: 99px; min-width: 34px; min-height: 34px; }
 .le-empty-title { font-size: 1.1em; font-weight: 600; }
 button.le-clear { font-size: 0.9em; }
+
+/* ---- appareils audio ---- */
+button.le-route {
+  border-radius: 99px;
+  padding: 6px 14px;
+  min-height: 0;
+  background-color: alpha(currentColor, 0.07);
+  border: none;
+  box-shadow: none;
+  background-image: none;
+}
+button.le-route:hover { background-color: alpha(currentColor, 0.12); }
+button.le-route:checked { background-color: alpha(currentColor, 0.16); }
+.le-pop-title { font-size: 0.85em; font-weight: 700; letter-spacing: 0.4px; }
+levelbar.le-meter trough { min-height: 8px; border-radius: 99px; padding: 0; border: none;
+                           background-color: alpha(currentColor, 0.1); }
+levelbar.le-meter block.filled { background-color: @le_green; border-radius: 99px; border: none; min-height: 8px; }
+levelbar.le-meter block.empty { background-color: transparent; border: none; }
+.le-audio-warning {
+  padding: 9px 12px;
+  border-radius: 8px;
+  background-color: alpha(@le_amber, 0.16);
+}

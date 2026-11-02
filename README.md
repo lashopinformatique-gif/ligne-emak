@@ -4,9 +4,12 @@
 
 Ligne EMAK transforme votre ordinateur en téléphone de bureau branché sur votre poste EMAK :
 appels sortants, appels entrants avec notification et sonnerie, messagerie vocale, mise en
-attente, transfert, clavier pendant l'appel et historique.
+attente, transfert, clavier pendant l'appel, historique, et choix du micro, du haut-parleur
+et de la sonnerie (casque USB ou Bluetooth compris).
 
 ![Aperçu : configuration du poste, clavier, appel entrant](docs/apercu.png)
+
+![Choix du micro, du haut-parleur et de la sonnerie, et changement d'appareil pendant un appel](docs/audio.png)
 
 > Projet communautaire indépendant, **non affilié à EMAK Telecom**. Il utilise le protocole SIP
 > standard, celui des téléphones Yealink et des applications mobiles qu'EMAK prend en charge.
@@ -20,7 +23,7 @@ Compatible Zorin OS 17 et 18, Ubuntu 22.04 et 24.04 (et dérivées).
 2. Double-cliquez dessus, puis cliquez sur **Installer**. En terminal :
 
    ```
-   sudo apt install ./ligne-emak_1.0.0_all.deb
+   sudo apt install ./ligne-emak_1.1.0_all.deb
    ```
 
    Le moteur téléphonique `baresip` s'installe automatiquement depuis les dépôts officiels.
@@ -50,6 +53,15 @@ Le mot de passe est rangé dans le trousseau de clés de votre session (applicat
   vers un poste ou un numéro).
 - **Messagerie vocale** : bouton à gauche du bouton vert (compose `*97`). Une pastille rouge
   indique les nouveaux messages.
+- **Micro, haut-parleur et sonnerie** : menu ☰ → **Micro et haut-parleur…**. Choisissez où
+  entendre la voix (haut-parleurs, casque…), quel micro utiliser (avec une barre qui bouge
+  quand vous parlez) et où faire sonner les appels entrants. Le bouton ▶ fait un essai.
+  Astuce casque : voix et micro sur le casque, sonnerie sur les haut-parleurs de l'ordinateur.
+- **Changer d'appareil pendant un appel** : touchez la pastille au-dessus du bouton rouge
+  (ex. « Casque USB Logitech ▾ ») et choisissez un autre haut-parleur ou micro ; l'appel
+  continue sans coupure.
+- **Casque branché ou débranché** : il est détecté tout seul. Débranché, l'appareil par défaut
+  prend le relais ; rebranché, il est réutilisé. Un message l'indique.
 - **Fermer la fenêtre** ne coupe pas la ligne : vous continuez à recevoir vos appels. Pour tout
   arrêter : menu ☰ → **Quitter**.
 - **Démarrer avec l'ordinateur** : option du menu ☰ (activée par défaut à la configuration).
@@ -61,7 +73,8 @@ Le mot de passe est rangé dans le trousseau de clés de votre session (applicat
 |---|---|
 | « EMAK refuse le poste ou le mot de passe » | Vérifiez les trois champs dans ☰ → Paramètres du poste. Le mot de passe respecte les majuscules. |
 | « Le serveur EMAK ne répond pas » | Vérifiez Internet et le domaine de la compagnie. |
-| On ne m'entend pas / je n'entends rien | Choisissez le micro et le haut-parleur dans **Paramètres → Son** (Ligne EMAK utilise ceux par défaut). |
+| On ne m'entend pas / je n'entends rien | Menu ☰ → **Micro et haut-parleur…** : choisissez le bon appareil, essayez-le avec ▶ et vérifiez que la barre du micro bouge quand vous parlez. |
+| Mon casque Bluetooth n'apparaît pas comme micro | Dans **Paramètres → Bluetooth / Son**, mettez le casque en mode « Casque » (HSP/HFP) plutôt que « Haute fidélité » (A2DP), qui n'a pas de micro. |
 | Le son ne passe que dans un sens | Désactivez le « SIP ALG » de votre routeur (recommandation d'EMAK). |
 | Les appels entrants arrêtent de sonner après un moment | ☰ → Paramètres du poste → Options avancées → **TCP**. |
 | Écho chez votre interlocuteur | Utilisez un casque ou des écouteurs plutôt que les haut-parleurs. |
@@ -88,24 +101,29 @@ src/ligne_emak/
   engine.py   pilotage de baresip (processus, console de contrôle, événements)
   app.py      application GTK : fenêtre, logique d'appel, notifications, icône de barre
   ui.py       widgets : formulaire, clavier, écrans d'appel, historique
+  audio.py    appareils audio : liste (pactl), branchement à chaud, choix et plan d'application
+  audio_ui.py fenêtre « Micro et haut-parleur » et sélecteur pendant l'appel
   store.py    réglages, trousseau (libsecret), historique, démarrage automatique
 data/         feuille de style GTK, icônes, lanceur .desktop
 debian/       métadonnées du paquet
-tests/        faux PBX SIP + test de bout en bout du moteur
+tests/        faux PBX SIP, faux appareils audio ALSA, tests de bout en bout
 ```
 
 **Lancer depuis les sources** (Zorin / Ubuntu) :
 
 ```
-sudo apt install python3-gi gir1.2-gtk-3.0 gir1.2-secret-1 baresip-core
+sudo apt install python3-gi gir1.2-gtk-3.0 gir1.2-secret-1 baresip-core pulseaudio-utils libasound2-plugins
 PYTHONPATH=src python3 -m ligne_emak
 ```
 
 **Fabriquer le paquet** : `./build-deb.sh` produit `build/ligne-emak_<version>_all.deb`.
 
 **Tester** : `python3 tests/test_engine.py` démarre un faux serveur EMAK et un second baresip
-sur 127.0.0.1, puis vérifie enregistrement, appels, DTMF, muet, attente et messagerie. Aucune carte
-son ni compte EMAK n'est nécessaire.
+sur 127.0.0.1, puis vérifie enregistrement, appels, DTMF, muet, attente et messagerie.
+`python3 tests/test_audio.py` vérifie le choix des appareils, puis, avec de faux appareils ALSA
+(`tests/fakeaudio.py`), que la sonnerie, la voix et le micro passent bien par les appareils
+choisis, y compris en changeant d'appareil en plein appel. Aucune carte son ni compte EMAK n'est
+nécessaire.
 
 **Fonctionnement** :
 
@@ -114,7 +132,12 @@ son ni compte EMAK n'est nécessaire.
 - Le mot de passe n'est transmis à baresip que dans un dossier privé en mémoire
   (`$XDG_RUNTIME_DIR`), effacé dès que baresip l'a lu.
 - SIP en UDP (ré-enregistrement chaque minute pour le NAT) ou TCP (RFC 5626) ;
-  codecs G.722, G.711, Opus ; son via ALSA « default » (PulseAudio / PipeWire).
+  codecs G.722, G.711, Opus.
+- Son : la liste des appareils vient de `pactl` (PulseAudio ou PipeWire) ; baresip ouvre
+  l'appareil choisi par ALSA via le greffon `pulse:DEVICE=<nom>` (ou `pipewire:NODE=<nom>`).
+  Pendant un appel, la bascule passe par les commandes `auplay`/`ausrc` de baresip. Comme
+  `auplay` règle aussi la sonnerie, une sonnerie sur un autre appareil que la voix est rétablie
+  en relançant le moteur, hors appel. `pactl subscribe` signale les branchements.
 - Le module de messagerie (`mwi`) de baresip 1.0 peut boucler si l'enregistrement aboutit avant
   son minuteur de démarrage : il est donc chargé seulement après le premier enregistrement réussi.
 - Après un changement de réseau ou une sortie de veille, le moteur est relancé (hors appel).

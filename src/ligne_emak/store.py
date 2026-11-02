@@ -41,6 +41,10 @@ DEFAULTS = {
     "width": 380,
     "height": 660,
     "close_hint_shown": False,
+    "audio_output": "",          # "" = appareil par défaut du système, sinon nom de la sortie
+    "audio_input": "",
+    "audio_ring": "@output",     # même appareil que la voix
+    "audio_names": {},           # noms lisibles des appareils déjà vus (pour « débranché »)
 }
 
 

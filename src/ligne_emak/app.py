@@ -10,7 +10,8 @@ gi.require_version("Gtk", "3.0")
 gi.require_version("Gdk", "3.0")
 from gi.repository import Gdk, Gio, GLib, Gtk  # noqa: E402
 
-from . import APP_ID, APP_NAME, VERSION, VOICEMAIL_NUMBER, store  # noqa: E402
+from . import APP_ID, APP_NAME, VERSION, VOICEMAIL_NUMBER, audio, store  # noqa: E402
+from .audio_ui import INPUT, OUTPUT, RING, AudioDialog, RouteButton  # noqa: E402
 from .engine import Account, Engine, normalize_number  # noqa: E402
 from .ui import (AccountForm, CallView, DialPad, HistoryList, IncomingView, add_class, clock,  # noqa: E402
                  format_number, human_duration, icon, label, number_from_uri)
@@ -84,6 +85,7 @@ class MainWindow(Gtk.ApplicationWindow):
         menu = Gio.Menu()
         sec1 = Gio.Menu()
         sec1.append("Paramètres du poste…", "app.settings")
+        sec1.append("Micro et haut-parleur…", "app.audio")
         sec1.append("Démarrer avec l'ordinateur", "app.autostart")
         menu.append_section(None, sec1)
         sec2 = Gio.Menu()
@@ -98,13 +100,27 @@ class MainWindow(Gtk.ApplicationWindow):
         self.set_titlebar(hb)
 
         # -- pages
+        # Bandeau de messages au-dessus de toutes les pages (visible aussi pendant un appel).
+        root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        self.add(root)
+        self.banner = Gtk.Revealer(transition_type=Gtk.RevealerTransitionType.SLIDE_DOWN)
+        bb = add_class(Gtk.Box(spacing=10), "le-banner")
+        self.banner_lb = label("", xalign=0, wrap=True)
+        bb.pack_start(self.banner_lb, True, True, 0)
+        self.banner_btn = Gtk.Button(label="Modifier", valign=Gtk.Align.CENTER)
+        self.banner_btn.connect("clicked", lambda *_: self.app.activate_action("settings", None))
+        bb.pack_start(self.banner_btn, False, False, 0)
+        self.banner.add(bb)
+        root.pack_start(self.banner, False, False, 0)
         self.stack = Gtk.Stack(transition_type=Gtk.StackTransitionType.CROSSFADE, transition_duration=180)
-        self.add(self.stack)
+        root.pack_start(self.stack, True, True, 0)
         self.stack.add_named(self._build_setup(), "setup")
         self.stack.add_named(self._build_phone(), "phone")
         self.incoming = IncomingView()
         self.stack.add_named(self.incoming, "incoming")
         self.callview = CallView()
+        self.route_button = RouteButton(app)
+        self.callview.route_slot.pack_start(self.route_button, False, False, 0)
         self.stack.add_named(self.callview, "call")
 
         self.connect("key-press-event", self._on_key)
@@ -135,16 +151,6 @@ class MainWindow(Gtk.ApplicationWindow):
 
     def _build_phone(self):
         outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
-
-        self.banner = Gtk.Revealer(transition_type=Gtk.RevealerTransitionType.SLIDE_DOWN)
-        bb = add_class(Gtk.Box(spacing=10), "le-banner")
-        self.banner_lb = label("", xalign=0, wrap=True)
-        bb.pack_start(self.banner_lb, True, True, 0)
-        self.banner_btn = Gtk.Button(label="Modifier", valign=Gtk.Align.CENTER)
-        self.banner_btn.connect("clicked", lambda *_: self.app.activate_action("settings", None))
-        bb.pack_start(self.banner_btn, False, False, 0)
-        self.banner.add(bb)
-        outer.pack_start(self.banner, False, False, 0)
 
         self.inner = Gtk.Stack(transition_type=Gtk.StackTransitionType.SLIDE_LEFT_RIGHT, transition_duration=160)
         sw = Gtk.StackSwitcher(stack=self.inner, halign=Gtk.Align.CENTER, margin_top=10, margin_bottom=2)
@@ -339,6 +345,11 @@ class LigneEmakApp(Gtk.Application):
         self._net_src = 0
         self._started_hidden = False
         self._end_src = 0
+        self.devices = audio.DeviceList()
+        self.audio_backend = None
+        self.devmon = None
+        self.audio_dialog = None
+        self._audio_pending = False
 
     # ---------------------------------------------------------------- démarrage
 
@@ -357,6 +368,7 @@ class LigneEmakApp(Gtk.Application):
             print("CSS:", e.message, file=sys.stderr)
 
         for name, cb in (("settings", self.on_settings), ("log", self.on_log), ("about", self.on_about),
+                         ("audio", lambda *_: self.open_audio_dialog()),
                          ("quit", self.on_quit), ("show", lambda *_: self.show_window()),
                          ("answer", lambda *_: self.answer()), ("decline", lambda *_: self.decline()),
                          ("history", self.on_show_history)):
@@ -373,6 +385,12 @@ class LigneEmakApp(Gtk.Application):
         self.engine.connect("status", self.on_engine_status)
         self.engine.connect("call-event", self.on_call_event)
         self.engine.connect("mwi", self.on_mwi)
+        self.audio_backend = audio.alsa_backend()
+        self.refresh_devices()
+        self.engine.audio = self._route_for_engine()
+        self.devmon = audio.DeviceMonitor()
+        self.devmon.connect("changed", self.on_devices_changed)
+        self.devmon.start()
 
         self.window = MainWindow(self)
         self.window.show_all()
@@ -537,6 +555,8 @@ class LigneEmakApp(Gtk.Application):
     # ---------------------------------------------------------------- état du moteur
 
     def on_engine_status(self, eng, state, detail):
+        if state in ("registering", "online"):
+            self.apply_audio()
         s = self.settings
         ext = s.get("extension", "")
         w = self.window
@@ -731,6 +751,8 @@ class LigneEmakApp(Gtk.Application):
         elif typ == "CALL_ESTABLISHED":
             call.state = "active"
             call.answered = time.time()
+            if self._audio_pending:
+                GLib.idle_add(self.apply_audio)
             if ev.get("peerdisplayname") and not call.name:
                 call.name = ev["peerdisplayname"]
             self.withdraw_notification("incoming")
@@ -771,6 +793,7 @@ class LigneEmakApp(Gtk.Application):
         self.after_call_ended(call, msg)
 
     def after_call_ended(self, call, msg):
+        GLib.idle_add(self.apply_audio)   # rétablit la sonnerie, applique les choix en attente
         remaining = self.current_call()
         w = self.window
         if remaining:
@@ -830,6 +853,7 @@ class LigneEmakApp(Gtk.Application):
         self._syncing = False
         cv.mute.text.set_text("Micro coupé" if call.muted else "Muet")
         cv.hold.text.set_text("En attente" if call.held else "Attente")
+        self.window.route_button.update()
         others = [c for c in self.active_calls() if c is not call]
         cv.held_label.set_text("%s · en attente" % others[0].display if others else "")
         cv.held_bar.set_reveal_child(bool(others))
@@ -913,6 +937,98 @@ class LigneEmakApp(Gtk.Application):
         store.save_settings(self.settings)
         self.window.set_missed(0)
         self.withdraw_notification("missed")
+
+    # ---------------------------------------------------------------- appareils audio
+
+    def audio_prefs(self):
+        s = self.settings
+        return {"output": s.get(OUTPUT, ""), "input": s.get(INPUT, ""), "ring": s.get(RING, audio.SAME_AS_OUTPUT)}
+
+    def current_route(self):
+        return audio.compute_route(self.audio_prefs(), self.devices, self.audio_backend)
+
+    def _route_for_engine(self):
+        r = self.current_route()
+        return {k: r[k] for k in ("player", "source", "alert")}
+
+    def refresh_devices(self):
+        self.devices = audio.list_devices()
+        names = dict(self.settings.get("audio_names") or {})
+        changed = False
+        for d in self.devices.sinks + self.devices.sources:
+            if names.get(d.name) != d.description:
+                names[d.name] = d.description
+                changed = True
+        if changed:
+            self.settings["audio_names"] = names
+            store.save_settings(self.settings)
+
+    def apply_audio(self):
+        """Met le moteur en accord avec les appareils choisis (voir audio.plan_changes)."""
+        self.engine.audio = self._route_for_engine()
+        if self.engine.audio_locked or not self.engine.connected:
+            return False
+        route = self.current_route()
+        calls = self.active_calls()
+        actions = audio.plan_changes(route, self.engine.applied, bool(calls),
+                                     any(c.state != "active" for c in calls))
+        self._audio_pending = False
+        for act in actions:
+            if act[0] == "defer":
+                self._audio_pending = True
+            elif act[0] == "ausrc":
+                self.engine.set_source(act[1], self._audio_result)
+            elif act[0] == "auplay":
+                self.engine.set_player(act[1], self._audio_result)
+            elif act[0] == "restart":
+                acc = self.current_account()
+                if acc and acc.is_complete():
+                    self.engine.start(acc)
+        if self.window:
+            self.window.route_button.update()
+        return False
+
+    def _audio_result(self, ok, data):
+        if not ok:
+            self.toast("Impossible d'utiliser cet appareil audio. Vérifiez qu'il est bien branché.")
+
+    def set_audio_pref(self, key, value, refresh_dialog=False):
+        self.settings[key] = value
+        store.save_settings(self.settings)
+        self.apply_audio()
+        if refresh_dialog and self.audio_dialog:
+            self.audio_dialog.refresh()
+
+    def on_devices_changed(self, monitor):
+        prefs = self.audio_prefs()
+        before = self.current_route()["names"]
+        self.refresh_devices()
+        after = self.current_route()["names"]
+        self.apply_audio()
+        notes = []
+        for key, what in (("output", "la voix de vos appels"), ("input", "votre micro")):
+            want = prefs[key]
+            if want and before[key] != after[key]:
+                desc = self.settings.get("audio_names", {}).get(want, want)
+                if after[key] == want:
+                    notes.append("« %s » est branché : %s y passe." % (desc, what))
+                else:
+                    notes.append("« %s » est débranché : l'appareil par défaut prend le relais." % desc)
+        if notes:
+            self.toast(" ".join(notes))
+        if self.audio_dialog:
+            self.audio_dialog.refresh()
+        self.window.route_button.update()
+        if self.window.route_button.get_active():
+            self.window.route_button.rebuild()
+
+    def open_audio_dialog(self):
+        self.show_window()
+        if self.audio_dialog is None:
+            self.refresh_devices()
+            self.audio_dialog = AudioDialog(self)
+            self.audio_dialog.show_all()
+        self.audio_dialog.present()
 
     # ---------------------------------------------------------------- compte
 
@@ -1012,6 +1128,10 @@ class LigneEmakApp(Gtk.Application):
                 return
         store.save_settings(self.settings)
         self.withdraw_notification("incoming")
+        if self.devmon:
+            self.devmon.stop()
+        if self.audio_dialog:
+            self.audio_dialog.destroy()
         self.engine.stop_blocking()
         self.release()
         self.quit()

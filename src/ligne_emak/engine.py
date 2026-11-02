@@ -221,6 +221,12 @@ class Engine(GObject.Object):
         self._queue = []
         self._late_loaded = False
         self._moddir = None
+        # Appareils audio voulus (fixés par l'application) et ceux réellement en service.
+        self.audio = {"player": "alsa,default", "source": "alsa,default", "alert": "alsa,default"}
+        self.applied = {}
+        # Tests automatiques : fichiers WAV imposés à la place des appareils audio.
+        self.audio_locked = any(os.environ.get(k) for k in (
+            "LIGNE_EMAK_AUDIO_SOURCE", "LIGNE_EMAK_AUDIO_PLAYER", "LIGNE_EMAK_AUDIO_ALERT"))
         GLib.timeout_add_seconds(30, self._health_check)
 
     # ---------------------------------------------------------------- cycle de vie
@@ -331,12 +337,19 @@ class Engine(GObject.Object):
         self._connect_deadline = time.monotonic() + 15
         GLib.timeout_add(150, self._try_connect, gen)
 
+    @staticmethod
+    def sound_dir():
+        return os.environ.get("LIGNE_EMAK_SOUND_DIR") or _first_existing(SOUND_DIRS) or "/usr/share/baresip"
+
     def _config_text(self, moddir):
         env = os.environ
-        src = env.get("LIGNE_EMAK_AUDIO_SOURCE", "alsa,default")
-        play = env.get("LIGNE_EMAK_AUDIO_PLAYER", "alsa,default")
-        alert = env.get("LIGNE_EMAK_AUDIO_ALERT", play)
-        sounds = env.get("LIGNE_EMAK_SOUND_DIR") or _first_existing(SOUND_DIRS) or "/usr/share/baresip"
+        # Les variables d'environnement ne servent qu'aux tests (fichiers WAV au lieu d'une carte son).
+        src = env.get("LIGNE_EMAK_AUDIO_SOURCE") or self.audio["source"]
+        play = env.get("LIGNE_EMAK_AUDIO_PLAYER") or self.audio["player"]
+        alert = env.get("LIGNE_EMAK_AUDIO_ALERT") or (play if env.get("LIGNE_EMAK_AUDIO_PLAYER")
+                                                      else self.audio["alert"])
+        self.applied = {"player": play, "source": src, "alert": alert}
+        sounds = self.sound_dir()
         lines = [
             "# Généré par Ligne EMAK — ne pas modifier, réécrit à chaque démarrage",
             "poll_method epoll",
@@ -660,3 +673,21 @@ class Engine(GObject.Object):
 
     def transfer(self, number, cb=None):
         self.command("transfer", number, cb)
+
+    def set_player(self, device, cb=None):
+        """Change la sortie (voix de l'appel en cours compris). baresip y met aussi la sonnerie."""
+        def done(ok, data):
+            if ok:
+                self.applied["player"] = self.applied["alert"] = device
+            if cb:
+                cb(ok and "failed" not in data, data)
+        self.command("auplay", device, done)
+
+    def set_source(self, device, cb=None):
+        """Change le micro (appel en cours compris)."""
+        def done(ok, data):
+            if ok:
+                self.applied["source"] = device
+            if cb:
+                cb(ok and "failed" not in data, data)
+        self.command("ausrc", device, done)
